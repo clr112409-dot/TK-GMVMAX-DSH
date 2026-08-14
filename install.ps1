@@ -1,27 +1,23 @@
 # ============================================================
-# TK-GMVMAX-DSH 一键安装脚本（目标机运行）
+# TK-GMVMAX-DSH 安装/更新脚本（目标机运行）
 # 用法（推荐，自动下载全部文件）：
 #   irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.ps1 | iex
 # 或（已 clone/解压仓库到本地）：
 #   powershell -ExecutionPolicy Bypass -File install.ps1
 #
-# 自动完成：
-#   1. 定位/下载仓库内容（tkdash-host 插件 + TK-GMVMAX 看板服务）
-#   2. 探测 dsh 安装位置（npm 全局 node_modules/@deepseek-ai/dsh）
-#   3. 把 tkdash-host 插件复制到 dsh/node_modules/tkdash-host
-#   4. 在 cordis.patch.yml 中注册插件行（幂等，自动备份）
-#   5. 设置环境变量 DSH_TKDASH_ROOT / DSH_TKDASH_PYTHON
-#   6. 检查 Python 与 pandas/openpyxl 依赖（缺失时自动 pip 安装）
-#   7. 创建数据目录 daily_data / KCXQ / "SKU Matching Table"
-# 完成后重启 dsh web 即生效。
+# 首次安装：自动完成下载、复制插件、注册 cordis.patch.yml、设置环境变量、
+#           安装 Python 依赖、创建数据目录、冒烟测试。
+# 再次运行（更新）：自动对比已安装版本，有新版则覆盖更新（幂等，自动备份配置），
+#           版本相同则提示已是最新（可用 -Force 强制重装）。
 # ============================================================
+param([switch]$Force)
 $ErrorActionPreference = 'Stop'
 
 $REPO = 'clr112409-dot/TK-GMVMAX-DSH'
 $ZIP_URL = "https://github.com/$REPO/archive/refs/heads/main.zip"
 $RAW_URL = "https://raw.githubusercontent.com/$REPO/main"
 
-Write-Host '=== TK-GMVMAX-DSH 安装脚本 ===' -ForegroundColor Cyan
+Write-Host '=== TK-GMVMAX-DSH 安装/更新脚本 ===' -ForegroundColor Cyan
 
 # ---------- 0. 确定仓库文件位置 ----------
 $SCRIPT_DIR = if ($PSScriptRoot) { $PSScriptRoot } else { $null }
@@ -71,16 +67,38 @@ if (-not $dshRoot) {
   Write-Host '若 dsh 在自定义位置，请设置环境变量 DSH_ROOT 指向其目录后重跑。' -ForegroundColor Yellow
   exit 1
 }
-Write-Host "[1/7] dsh 目录: $dshRoot" -ForegroundColor Green
+Write-Host "[1/8] dsh 目录: $dshRoot" -ForegroundColor Green
 
-# ---------- 2. 复制 tkdash-host 插件 ----------
+# ---------- 2. 版本对比（已安装 vs 仓库新版） ----------
 $destPlugin = Join-Path $dshRoot 'node_modules\tkdash-host'
+$installedPkg = Join-Path $destPlugin 'package.json'
+$remotePkg = Join-Path $TKDASH_DIR 'package.json'
+
+$installedVersion = $null
+if (Test-Path $installedPkg) {
+  try { $installedVersion = (Get-Content $installedPkg -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch {}
+}
+$remoteVersion = $null
+try { $remoteVersion = (Get-Content $remotePkg -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch {}
+
+if ($installedVersion -and $remoteVersion -and $installedVersion -eq $remoteVersion -and -not $Force) {
+  Write-Host "[2/8] 已安装版本 v$installedVersion 与仓库最新版一致，无需更新。" -ForegroundColor Green
+  Write-Host '      如需强制重装请加 -Force 参数（irm | iex 场景：irm ... | iex -Force 不适用，请下载脚本后运行 powershell -File install.ps1 -Force）' -ForegroundColor Yellow
+  exit 0
+}
+if ($installedVersion) {
+  Write-Host "[2/8] 版本更新: v$installedVersion -> v$remoteVersion" -ForegroundColor Yellow
+} else {
+  Write-Host "[2/8] 首次安装（v$remoteVersion）" -ForegroundColor Green
+}
+
+# ---------- 3. 复制 tkdash-host 插件 ----------
 New-Item -ItemType Directory -Force -Path $destPlugin | Out-Null
 Copy-Item (Join-Path $TKDASH_DIR 'package.json') (Join-Path $destPlugin 'package.json') -Force
 Copy-Item (Join-Path $TKDASH_DIR 'index.js') (Join-Path $destPlugin 'index.js') -Force
-Write-Host '[2/7] 插件已复制到 dsh/node_modules/tkdash-host' -ForegroundColor Green
+Write-Host '[3/8] 插件已复制到 dsh/node_modules/tkdash-host' -ForegroundColor Green
 
-# ---------- 3. 注册 cordis.patch.yml（幂等 + 备份） ----------
+# ---------- 4. 注册 cordis.patch.yml（幂等 + 备份） ----------
 $profileDir = Join-Path $env:USERPROFILE '.dsh\profiles\web'
 $patchFile = Join-Path $profileDir 'cordis.patch.yml'
 New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
@@ -89,7 +107,7 @@ $pluginUrl = 'file:///' + ($destPlugin -replace '\\', '/') + '/index.js'
 if (Test-Path $patchFile) {
   $content = Get-Content $patchFile -Raw -Encoding UTF8
   if ($content -match 'tkdash-host') {
-    Write-Host '[3/7] cordis.patch.yml 已包含 tkdash-host，跳过注册' -ForegroundColor Green
+    Write-Host '[4/8] cordis.patch.yml 已包含 tkdash-host，跳过注册' -ForegroundColor Green
   } else {
     Copy-Item $patchFile ($patchFile + '.bak-' + (Get-Date -Format 'yyyyMMdd-HHmmss')) -Force
     $block = @"
@@ -100,7 +118,7 @@ if (Test-Path $patchFile) {
       name: '$pluginUrl'
 "@
     Add-Content -Path $patchFile -Value $block -Encoding UTF8
-    Write-Host '[3/7] 已注册 tkdash-host 到 cordis.patch.yml（原文件已备份）' -ForegroundColor Green
+    Write-Host '[4/8] 已注册 tkdash-host 到 cordis.patch.yml（原文件已备份）' -ForegroundColor Green
   }
 } else {
   $newContent = @"
@@ -114,10 +132,10 @@ if (Test-Path $patchFile) {
       name: '$pluginUrl'
 "@
   Set-Content -Path $patchFile -Value $newContent -Encoding UTF8
-  Write-Host '[3/7] 已创建 cordis.patch.yml 并注册 tkdash-host' -ForegroundColor Green
+  Write-Host '[4/8] 已创建 cordis.patch.yml 并注册 tkdash-host' -ForegroundColor Green
 }
 
-# ---------- 4. 设置环境变量 ----------
+# ---------- 5. 设置环境变量 ----------
 $python = $null
 try { $python = (Get-Command python -ErrorAction Stop).Source } catch {}
 if (-not $python) { try { $python = (Get-Command py -ErrorAction Stop).Source } catch {} }
@@ -127,11 +145,11 @@ if (-not $python) {
 }
 [Environment]::SetEnvironmentVariable('DSH_TKDASH_ROOT', $GMVMAX_DIR, 'User')
 [Environment]::SetEnvironmentVariable('DSH_TKDASH_PYTHON', $python, 'User')
-Write-Host "[4/7] 环境变量已设置: DSH_TKDASH_ROOT=$GMVMAX_DIR" -ForegroundColor Green
+Write-Host "[5/8] 环境变量已设置: DSH_TKDASH_ROOT=$GMVMAX_DIR" -ForegroundColor Green
 Write-Host "            DSH_TKDASH_PYTHON=$python" -ForegroundColor Green
 
-# ---------- 5. Python 依赖检查 ----------
-Write-Host '[5/7] 检查 Python 依赖...' -ForegroundColor Green
+# ---------- 6. Python 依赖检查 ----------
+Write-Host '[6/8] 检查 Python 依赖...' -ForegroundColor Green
 $depOk = $true
 foreach ($mod in @('pandas', 'openpyxl')) {
   & $python -c "import $mod" 2>$null
@@ -145,18 +163,20 @@ if (-not $depOk) {
     exit 1
   }
 }
-Write-Host '[5/7] Python 依赖就绪' -ForegroundColor Green
+Write-Host '[6/8] Python 依赖就绪' -ForegroundColor Green
 
-# ---------- 6. 创建数据目录 ----------
+# ---------- 7. 创建数据目录 ----------
 foreach ($d in @('daily_data', 'KCXQ', 'SKU Matching Table')) {
   New-Item -ItemType Directory -Force -Path (Join-Path $GMVMAX_DIR $d) | Out-Null
 }
-Write-Host '[6/7] 数据目录已创建: daily_data / KCXQ / "SKU Matching Table"' -ForegroundColor Green
+Write-Host '[7/8] 数据目录已创建: daily_data / KCXQ / "SKU Matching Table"' -ForegroundColor Green
 
-# ---------- 7. 冒烟测试看板服务 ----------
-Write-Host '[7/7] 冒烟测试看板服务（约 30 秒）...' -ForegroundColor Green
+# ---------- 8. 冒烟测试看板服务 ----------
+Write-Host '[8/8] 冒烟测试看板服务（约 30 秒）...' -ForegroundColor Green
 $smokeOk = $false
+$wasRunning = $false
 try {
+  try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8501/api/meta' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { $wasRunning = $true } } catch {}
   $proc = Start-Process -FilePath $python -ArgumentList @((Join-Path $GMVMAX_DIR 'dashboard_server.py'), '--port', '8501', '--no-browser') -PassThru -WindowStyle Hidden
   for ($i = 0; $i -lt 30; $i++) {
     Start-Sleep -Seconds 1
@@ -169,19 +189,25 @@ try {
   if (-not $smokeOk) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
 } catch {}
 if ($smokeOk) {
-  Write-Host '[7/7] 看板服务启动正常，数据解析 OK' -ForegroundColor Green
-  try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+  Write-Host '[8/8] 看板服务启动正常，数据解析 OK' -ForegroundColor Green
+  if (-not $wasRunning) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
 } else {
-  Write-Host '[7/7] 警告：冒烟测试未通过（服务可能已在运行或启动较慢）。重启 dsh 后宿主会自动再试。' -ForegroundColor Yellow
+  Write-Host '[8/8] 警告：冒烟测试未通过（服务可能已在运行或启动较慢）。重启 dsh 后宿主会自动再试。' -ForegroundColor Yellow
 }
 
 Write-Host ''
 Write-Host '========================================' -ForegroundColor Cyan
-Write-Host '安装完成！接下来：' -ForegroundColor Cyan
-Write-Host '  1. 重启 dsh web（关闭后重新启动）'
-Write-Host '  2. 把数据文件放入对应目录：'
-Write-Host "     - 广告日报 Excel  -> $GMVMAX_DIR\daily_data"
-Write-Host "     - 库存 Excel      -> $GMVMAX_DIR\KCXQ"
-Write-Host "     - SKU 匹配表      -> $GMVMAX_DIR\SKU Matching Table"
-Write-Host '  3. 重启后看板服务自动启动（http://127.0.0.1:8501），dashboard_query 工具全局可用'
+if ($installedVersion) {
+  Write-Host "更新完成：v$installedVersion -> v$remoteVersion" -ForegroundColor Cyan
+  Write-Host '  1. 重启 dsh web 使新插件代码生效（宿主插件在启动时加载）'
+  Write-Host '  2. 若 8501 看板服务正在运行，需重启 dsh 或手动结束旧 python 进程，否则服务仍是旧代码'
+} else {
+  Write-Host '安装完成！接下来：' -ForegroundColor Cyan
+  Write-Host '  1. 重启 dsh web（关闭后重新启动）'
+  Write-Host '  2. 把数据文件放入对应目录：'
+  Write-Host "     - 广告日报 Excel  -> $GMVMAX_DIR\daily_data"
+  Write-Host "     - 库存 Excel      -> $GMVMAX_DIR\KCXQ"
+  Write-Host "     - SKU 匹配表      -> $GMVMAX_DIR\SKU Matching Table"
+  Write-Host '  3. 重启后看板服务自动启动（http://127.0.0.1:8501），dashboard_query 工具全局可用'
+}
 Write-Host '========================================' -ForegroundColor Cyan
