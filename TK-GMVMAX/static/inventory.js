@@ -60,7 +60,6 @@ function render() {
   document.getElementById('dataTime').textContent = '更新时间: ' + new Date().toLocaleString('zh-CN');
   renderKPI(d);
   renderChartsRow1(d);
-  renderChartsRow2(d);
   renderAgingChart(d);
   renderTable(d);
 }
@@ -128,7 +127,6 @@ function svgDonutLegend(data, colors) {
 // ============ Charts Row 1 ============
 function renderChartsRow1(d) {
   var status = d.inventory_status || {};
-  var tags = d.goods_tags || {};
   var vol = d.sales_volume || {};
   
   var statusData = [];
@@ -141,12 +139,6 @@ function renderChartsRow1(d) {
     else statusColors.push(COLORS.orange);
   });
   
-  var tagsData = [];
-  var tagsColors = [];
-  Object.keys(tags).forEach(function(k, i) {
-    tagsData.push({label: k, v: tags[k]});
-    tagsColors.push(COLORS.palette[i % COLORS.palette.length]);
-  });
   
   var volData = [];
   var volColors = [];
@@ -157,7 +149,6 @@ function renderChartsRow1(d) {
 
   document.getElementById('chartsRow1').innerHTML = [
     '<div class="chart-card"><h3>库存状态分布</h3><div class="chart-wrap"><svg width="220" height="220" viewBox="0 0 220 220">' + svgDonut(110,110,85,statusData,statusColors) + '</svg></div><div class="legend">' + svgDonutLegend(statusData,statusColors) + '</div></div>',
-    '<div class="chart-card"><h3>商品标签分布</h3><div class="chart-wrap"><svg width="220" height="220" viewBox="0 0 220 220">' + svgDonut(110,110,85,tagsData,tagsColors) + '</svg></div><div class="legend">' + svgDonutLegend(tagsData,tagsColors) + '</div></div>',
     '<div class="chart-card"><h3>近30天销量分布 (SKU数)</h3><div class="chart-wrap"><svg width="220" height="220" viewBox="0 0 220 220">' + svgDonut(110,110,85,volData,volColors) + '</svg></div><div class="legend">' + svgDonutLegend(volData,volColors) + '</div></div>'
   ].join('');
 }
@@ -187,49 +178,6 @@ function svgBarChart(data, width, height, barColor, labelWidth) {
     offset += 32;
   });
   return '<svg width="' + width + '" height="' + Math.max(50, offset + 10) + '" viewBox="0 0 ' + width + ' ' + Math.max(50, offset + 10) + '">' + bars.join('\n') + '</svg>';
-}
-
-// ============ Charts Row 2 ============
-function renderChartsRow2(d) {
-  var dos = d.dos_distribution || {};
-  var brands = d.brands || {};
-  
-  var dosData = [];
-  dosData.push({label:'缺货 (0天)', v: dos.zero || 0});
-  dosData.push({label:'低库存 (<30天)', v: dos.low_under30 || 0});
-  dosData.push({label:'健康 (30-90天)', v: dos.healthy_30to90 || 0});
-  dosData.push({label:'过剩库存 (>90天)', v: dos.overstock_over90 || 0});
-  
-  var brandAvailData = [];
-  var brandSalesData = [];
-  var brandOOSData = [];
-  Object.keys(brands).forEach(function(k) {
-    var b = brands[k];
-    brandAvailData.push({label: k, v: b.available});
-    brandSalesData.push({label: k, v: b.sales_30d});
-    brandOOSData.push({label: k, v: b.oos});
-  });
-  
-  document.getElementById('chartsRow2').innerHTML = [
-    '<div class="chart-card"><h3>供应天数分布 (SKU数)</h3><div class="chart-wrap">' + svgBarChart(dosData, 400, 200, COLORS.blue, 90) + '</div></div>',
-    '<div class="chart-card"><h3>品牌对比</h3><div class="chart-wrap">' + 
-      '<div style="display:grid;gap:12px">' +
-        brandAvailData.map(function(b) {
-          var sales = brandSalesData.find(function(s) { return s.label === b.label; });
-          var oos = brandOOSData.find(function(o) { return o.label === b.label; });
-          var bb = brands[b.label];
-          return '<div style="background:#f8fafc;border-radius:6px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
-            '<div style="font-weight:600;min-width:100px">' + b.label + '</div>' +
-            '<div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap">' +
-              '<span>SKU: <strong>' + (bb?.skus||0) + '</strong></span>' +
-              '<span>可用: <strong style="color:var(--success)">' + (b.v||0).toFixed(0) + '</strong></span>' +
-              '<span>在途: <strong style="color:var(--primary)">' + (bb?.transit||0).toFixed(0) + '</strong></span>' +
-              '<span>销量30d: <strong style="color:var(--purple)">' + (sales?.v||0).toFixed(0) + '</strong></span>' +
-              '<span>缺货: <strong style="color:var(--danger)">' + (oos?.v||0) + '</strong></span>' +
-            '</div></div>';
-        }).join('') +
-      '</div></div>'
-  ].join('');
 }
 
 // ============ Canvas Aging Chart ============
