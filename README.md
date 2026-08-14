@@ -17,16 +17,34 @@ TikTok 广告素材分析 + FBT 库存监管看板，作为 **DeepSeek Harness (
 irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.ps1 | iex
 ```
 
+> ⚠️ 建议使用 **PowerShell 7+（pwsh）** 或直接使用上面的 `irm | iex` 方式（脚本文件为无 BOM UTF-8，Windows PowerShell 5.1 下用 `-File` 本地运行可能中文乱码，请改用 `pwsh -File install.ps1`）。
+
 脚本自动完成：
 
 1. 探测 dsh 安装目录（npm 全局 node_modules）
-2. 复制 `tkdash-host` 插件到 `dsh/node_modules/tkdash-host`
-3. 在 `~/.dsh/profiles/web/cordis.patch.yml` 注册插件行（幂等，自动备份原文件）
-4. 设置用户环境变量 `DSH_TKDASH_ROOT`（看板项目目录）和 `DSH_TKDASH_PYTHON`
-5. 检查/安装 pandas、openpyxl
-6. 创建数据目录 `daily_data` / `KCXQ` / `SKU Matching Table`
+2. 对比已安装版本与仓库最新版（相同则提示已最新并退出）
+3. 复制 `tkdash-host` 插件到 `dsh/node_modules/tkdash-host`
+4. 在 `~/.dsh/profiles/web/cordis.patch.yml` 注册插件行（幂等，自动备份原文件）
+5. 设置用户环境变量 `DSH_TKDASH_ROOT`（看板项目目录）和 `DSH_TKDASH_PYTHON`
+6. 检查/安装 pandas、openpyxl
+7. 创建数据目录 `daily_data` / `KCXQ` / `SKU Matching Table`
+8. 冒烟测试看板服务
 
 然后**重启 dsh web**，看板服务自动启动。
+
+## 更新插件（目标机）
+
+**重跑同一条命令即可**：
+
+```powershell
+irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.ps1 | iex
+```
+
+脚本会自动对比版本：有新版则覆盖更新，无新版则提示"已是最新"。更新完成后**重启 dsh web** 生效（若 8501 看板服务正在运行，重启 dsh 或手动结束旧 python 进程后新服务代码才生效）。
+
+> 版本号在 `tkdash-host/package.json` 的 `version` 字段。作者发布更新时需**递增版本号**（如 1.0.0 → 1.0.1），目标机才能识别到新版本。
+
+> 强制重装：下载 `install.ps1` 到本地后运行 `powershell -ExecutionPolicy Bypass -File install.ps1 -Force`。
 
 ## 数据文件放置
 
