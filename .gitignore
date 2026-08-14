@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 数据文件（各机器自己的数据，不入库）
+TK-GMVMAX/daily_data/*.xlsx
+TK-GMVMAX/KCXQ/*.xlsx
+TK-GMVMAX/SKU Matching Table/*.xlsx
+
+# 系统
+Thumbs.db
+.DS_Store
