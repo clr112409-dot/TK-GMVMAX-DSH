@@ -46,6 +46,40 @@ irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.p
 
 > 强制重装：下载 `install.ps1` 到本地后运行 `powershell -ExecutionPolicy Bypass -File install.ps1 -Force`。
 
+## 在目标机修改代码并推送回 GitHub
+
+安装脚本会把仓库解压到固定工作区 **`C:\Users\<用户名>\TK-GMVMAX-DSH\`**（更新时保留其中的数据文件），所以目标机也可以直接改代码并发布：
+
+```powershell
+# 1. 进入工作区
+cd $HOME\TK-GMVMAX-DSH
+
+# 2. 初始化 git 并关联远程仓库
+git init
+git remote add origin https://github.com/clr112409-dot/TK-GMVMAX-DSH.git
+git fetch origin
+git checkout -b main origin/main
+# （首次需要配置 git 身份）
+git config user.name "你的名字"
+git config user.email "你的邮箱"
+
+# 3. 修改代码后提交推送（建议同时递增 tkdash-host/package.json 的 version）
+git add -A
+git commit -m "你的修改说明"
+git push origin main
+```
+
+推送成功后，**所有目标机**（包括你自己这台）重跑安装命令即可同步更新：
+
+```powershell
+irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.ps1 | iex
+```
+
+注意事项：
+- 目标机需要安装 [Git for Windows](https://git-scm.com/download/win)，推送时需 GitHub 账号认证（Personal Access Token 或 SSH key）
+- 数据文件（`daily_data` / `KCXQ` / `SKU Matching Table` 里的 xlsx）已被 `.gitignore` 排除，不会被推送到 GitHub
+- 如果多台电脑都改代码，推送前先 `git pull` 拉取最新，避免冲突
+
 ## 数据文件放置
 
 | 数据 | 目录 |
