@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime
 from io import BytesIO
@@ -258,9 +258,9 @@ def classify_material(row: pd.Series, high_roi: float, low_roi: float, min_order
     clicks = float(row.get("商品广告点击数", 0) or 0)
     impressions = float(row.get("商品广告曝光数", 0) or 0)
     if cost > 0 and orders <= 0:
-        return "有花费无订单"
+        return "低效素材"  # 原"有花费无订单"，并入低效
     if impressions > 0 and clicks <= 0:
-        return "有曝光无点击"
+        return "低效素材"  # 原"有曝光无点击"，并入低效
     if orders >= min_orders and roi >= high_roi:
         return "爆款素材"
     if roi >= high_roi:
