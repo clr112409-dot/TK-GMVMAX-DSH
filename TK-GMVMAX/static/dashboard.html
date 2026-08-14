@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TK-GMVMAX-FBT面板</title>
+<script>try{if(localStorage.getItem('gmvTheme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <section class="hero"><h1>TK-GMVMAX-FBT面板</h1><p>广告素材分析与 FBT 库存监管：自动读取 daily_data、SKU 产品配对表和 KCXQ 库存数据。</p><button type="button" class="theme-toggle" onclick="toggleTheme()" title="切换深色 / 浅色模式">🌓</button></section>
+  <section class="toolbar">
+    <div class="field date-range-field"><label>日期范围</label><div class="dr-picker" id="dateRangePicker"><button type="button" class="dr-trigger" id="dateRangeTrigger"><svg class="dr-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="dr-label" id="dateRangeLabel">—</span><span class="dr-arrow">▾</span></button><div class="dr-panel" id="dateRangePanel"><div class="dr-shortcuts" id="drShortcuts"><button type="button" data-days="7">近 7 天</button><button type="button" data-days="30">近 30 天</button><button type="button" data-days="90">近 90 天</button><button type="button" data-days="60">近 60 天</button></div><div class="dr-calendars" id="drCalendars"></div></div></div><input type="date" class="filter-source" id="startDate"><input type="date" class="filter-source" id="endDate"></div>
+    <div class="field"><label>产品名称</label><div class="multi-dropdown" id="productFilterDropdown"><button type="button" class="dropdown-toggle" id="productFilterButton"><span class="toggle-label">全部</span><span class="toggle-arrow">▾</span></button><div class="dropdown-menu" id="productFilterMenu"></div></div><select class="filter-source" id="productFilter" multiple></select></div>
+    <div class="field"><label>创意类型</label><div class="multi-dropdown" id="creativeFilterDropdown"><button type="button" class="dropdown-toggle" id="creativeFilterButton"><span class="toggle-label">全部</span><span class="toggle-arrow">▾</span></button><div class="dropdown-menu" id="creativeFilterMenu"></div></div><select class="filter-source" id="creativeFilter" multiple></select></div>
+    <div class="field"><label>投放状态</label><div class="multi-dropdown" id="statusFilterDropdown"><button type="button" class="dropdown-toggle" id="statusFilterButton"><span class="toggle-label">全部</span><span class="toggle-arrow">▾</span></button><div class="dropdown-menu" id="statusFilterMenu"></div></div><select class="filter-source" id="statusFilter" multiple></select></div>
+    <div class="field" style="min-width:170px"><label>全局搜索</label><input type="text" id="globalSearchInput" placeholder="标题 / 素材标识 / 视频 ID / 商品 ID / 产品名称" oninput="globalSearch(this)"></div>
+    <button class="btn" id="refreshBtn">刷新数据</button>
+  </section>
+  <div class="meta" id="metaText">正在读取数据…</div>
+  <section class="kpis" id="kpis"></section>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="overview">总览</button><button class="tab" data-tab="material">素材分析</button><button class="tab" data-tab="product">产品 / SKU</button><button class="tab" data-tab="campaign">广告计划</button><button class="tab" data-tab="funnel">播放漏斗</button><button class="tab" data-tab="quality">数据质量</button><button class="tab" data-tab="inventory">库存</button>
+  </nav>
+  <main id="content"></main>
+  <div class="footer">TK-GMVMAX-FBT面板 · 数据直接读取本地 Excel 文件 · 更新文件后点击“刷新数据”</div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
+
+
+
+
+
