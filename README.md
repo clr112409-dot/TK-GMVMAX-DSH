@@ -1,17 +1,37 @@
 # TK-GMVMAX-DSH
 
-TikTok 广告素材分析 + FBT 库存监管看板，作为 **DeepSeek Harness (dsh) 宿主常驻插件** 集成。
+TikTok 广告素材分析 + FBT 库存监管看板。本仓库提供 **两种使用方式**：
+
+- **方式一：本地运行版（推荐给普通使用，不需要 dsh）**——下载 zip，双击即用
+- **方式二：DeepSeek Harness (dsh) 宿主插件版**——看板作为 dsh 常驻插件集成
+
+## 方式一：本地运行版（不需要 dsh）
+
+下载 **`TK-GMVMAX-FBT面板-分享包.zip`**，解压后：
+
+1. 安装 Python 3.10+（https://www.python.org/downloads/ ，勾选 **Add Python to PATH**）
+2. 双击 **`启动面板.bat`**：自动安装依赖（首次约 1-2 分钟），自动打开 http://127.0.0.1:8501
+3. 把数据 Excel 放入对应文件夹：
+   - `daily_data\`：广告日报（按日期命名，如 `8.13.xlsx`）
+   - `SKU Matching Table\`：SKU 匹配表（第一列商品 ID，第二列产品名称）
+   - `KCXQ\`：库存 Excel（自动取最新文件）
+4. 更新文件后点页面「刷新数据」即可；关闭启动窗口即停止面板
+
+> 分享包 zip 不含任何业务数据，可直接分发；端口占用时自动改用 8502 等后续端口。
+
+## 方式二：dsh 宿主插件版
 
 - 看板服务自动启动/常驻（端口 8501），跨会话可用
 - `dashboard_query` 工具全局注册：任意会话可直接查询广告/素材/库存数据
 - `/api/tkdash` 端口路由：浏览器端可随时读取看板端口状态
 - 系统提示自动注入，助手知道何时调用看板工具
 
-## 一键安装（目标机）
+### 一键安装（目标机）
 
 需要：已安装 dsh web、Python 3.10+（含 pandas、openpyxl）。
 
 在目标机 PowerShell 中执行：
+
 
 ```powershell
 irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.ps1 | iex
