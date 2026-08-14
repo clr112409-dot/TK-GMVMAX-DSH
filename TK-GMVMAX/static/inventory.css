@@ -39,7 +39,7 @@
 
   /* Chart Grid */
   .chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
-  .chart-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:20px; }
+  .chart-grid-3 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
   .chart-card { background:var(--card); border-radius:var(--radius); padding:16px; border:1px solid var(--border); box-shadow:var(--shadow); }
   .chart-card.full { grid-column:1/-1; }
   .chart-card h3 { font-size:13px; font-weight:600; color:var(--text2); margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px; }
