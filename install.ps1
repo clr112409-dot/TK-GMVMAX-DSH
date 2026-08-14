@@ -9,6 +9,8 @@
 #           安装 Python 依赖、创建数据目录、冒烟测试。
 # 再次运行（更新）：自动对比已安装版本，有新版则覆盖更新（幂等，自动备份配置），
 #           版本相同则提示已是最新（可用 -Force 强制重装）。
+#
+# 仓库固定解压到 $HOME\TK-GMVMAX-DSH（可在目标机直接修改，更新时保留数据目录）。
 # ============================================================
 param([switch]$Force)
 $ErrorActionPreference = 'Stop'
@@ -16,6 +18,7 @@ $ErrorActionPreference = 'Stop'
 $REPO = 'clr112409-dot/TK-GMVMAX-DSH'
 $ZIP_URL = "https://github.com/$REPO/archive/refs/heads/main.zip"
 $RAW_URL = "https://raw.githubusercontent.com/$REPO/main"
+$WORK_DIR = Join-Path $env:USERPROFILE 'TK-GMVMAX-DSH'
 
 Write-Host '=== TK-GMVMAX-DSH 安装/更新脚本 ===' -ForegroundColor Cyan
 
@@ -39,9 +42,29 @@ if (-not $TKDASH_DIR -or -not (Test-Path (Join-Path $TKDASH_DIR 'index.js'))) {
   Expand-Archive -Path $zip -DestinationPath $tmp -Force
   $extracted = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like 'TK-GMVMAX-DSH-*' } | Select-Object -First 1
   if (-not $extracted) { Write-Host '下载内容解压失败' -ForegroundColor Red; exit 1 }
-  $TKDASH_DIR = Join-Path $extracted.FullName 'tkdash-host'
-  $GMVMAX_DIR = Join-Path $extracted.FullName 'TK-GMVMAX'
-  Write-Host "仓库已解压: $($extracted.FullName)" -ForegroundColor Green
+  $srcDir = $extracted.FullName
+  $TKDASH_DIR = Join-Path $srcDir 'tkdash-host'
+  $GMVMAX_DIR = Join-Path $srcDir 'TK-GMVMAX'
+
+  # 固定工作区：把下载内容落到 $HOME\TK-GMVMAX-DSH（保留已有数据文件）
+  New-Item -ItemType Directory -Force -Path $WORK_DIR | Out-Null
+  $workGMVMAX = Join-Path $WORK_DIR 'TK-GMVMAX'
+  foreach ($d in @('daily_data', 'KCXQ', 'SKU Matching Table')) {
+    $dst = Join-Path $workGMVMAX $d
+    New-Item -ItemType Directory -Force -Path $dst | Out-Null
+    if (Test-Path (Join-Path $GMVMAX_DIR $d)) {
+      Get-ChildItem (Join-Path $GMVMAX_DIR $d) -File -ErrorAction SilentlyContinue |
+        Copy-Item -Destination $dst -Force -ErrorAction SilentlyContinue
+    }
+  }
+  # 覆盖代码文件（不删除目标目录，避免数据丢失；已存在数据目录保持不动）
+  Copy-Item (Join-Path $srcDir 'tkdash-host') (Join-Path $WORK_DIR 'tkdash-host') -Recurse -Force
+  Copy-Item (Join-Path $srcDir 'TK-GMVMAX\*') $workGMVMAX -Recurse -Force
+  Copy-Item (Join-Path $srcDir 'install.ps1') (Join-Path $WORK_DIR 'install.ps1') -Force -ErrorAction SilentlyContinue
+  Copy-Item (Join-Path $srcDir 'README.md') (Join-Path $WORK_DIR 'README.md') -Force -ErrorAction SilentlyContinue
+  $TKDASH_DIR = Join-Path $WORK_DIR 'tkdash-host'
+  $GMVMAX_DIR = $workGMVMAX
+  Write-Host "仓库已就位于固定工作区: $WORK_DIR（后续更新/修改都在这里）" -ForegroundColor Green
 }
 if (-not (Test-Path (Join-Path $TKDASH_DIR 'index.js')) -or -not (Test-Path (Join-Path $GMVMAX_DIR 'dashboard_server.py'))) {
   Write-Host '仓库文件不完整（缺少 tkdash-host/index.js 或 TK-GMVMAX/dashboard_server.py）' -ForegroundColor Red
@@ -210,4 +233,5 @@ if ($installedVersion) {
   Write-Host "     - SKU 匹配表      -> $GMVMAX_DIR\SKU Matching Table"
   Write-Host '  3. 重启后看板服务自动启动（http://127.0.0.1:8501），dashboard_query 工具全局可用'
 }
+Write-Host "工作区: $WORK_DIR（在此修改代码后，可自行 git 推送或让作者代推）" -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
