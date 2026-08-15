@@ -12,10 +12,12 @@ TikTok 广告素材分析 + FBT 库存监管看板。本仓库提供 **两种使
 1. 安装 Python 3.10+（https://www.python.org/downloads/ ，勾选 **Add Python to PATH**）
 2. 双击 **`启动面板.bat`**：自动安装依赖（首次约 1-2 分钟），自动打开 http://127.0.0.1:8501
 3. 把数据 Excel 放入对应文件夹：
-   - `daily_data\`：广告日报（按日期命名，如 `8.13.xlsx`）
+   - `daily_data\`：广告日报（按日期命名，支持 `8.13.xlsx` 或 `2026-08-12.xlsx`）
    - `SKU Matching Table\`：SKU 匹配表（第一列商品 ID，第二列产品名称）
    - `KCXQ\`：库存 Excel（自动取最新文件）
 4. 更新文件后点页面「刷新数据」即可；关闭启动窗口即停止面板
+
+> 局域网访问（可选）：启动命令加 `--host 0.0.0.0` 可让手机/局域网设备访问；此时面板**自动生成访问令牌**并打印带 `?token=...` 的访问地址，未携带令牌的 `/api/*` 请求返回 401。也可用 `--token 自定义令牌` 指定固定令牌。
 
 > 分享包 zip 不含任何业务数据，可直接分发；端口占用时自动改用 8502 等后续端口。
 
@@ -104,11 +106,22 @@ irm https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/install.p
 
 | 数据 | 目录 |
 |---|---|
-| 广告日报 Excel | `TK-GMVMAX\daily_data\`（按日期命名，如 `2026-08-12.xlsx`） |
+| 广告日报 Excel | `TK-GMVMAX\daily_data\`（按日期命名，支持 `8.13.xlsx` 或 `2026-08-12.xlsx`） |
 | FBT 库存 Excel | `TK-GMVMAX\KCXQ\`（按日期命名，自动取最新） |
 | SKU 匹配表 | `TK-GMVMAX\SKU Matching Table\` |
 
 数据目录由安装脚本创建。文件更新后无需重启：看板每次请求自动检测源文件签名，变了就重新解析。
+
+> 可选：在 `KCXQ` 目录放一个 `brand_keywords.json`（格式 `{"品牌名": ["关键词", ...]}`）可自定义品牌识别规则，无需改代码；文件不存在时使用内置规则。
+
+> 可选：在面板根目录（`dashboard_server.py` 同级）放 `lifecycle_rules.json`（格式 `{"new_days": 7, "compare_days": 7, "decline_threshold": 0.3}`）可自定义素材生命周期阈值；文件更新后自动生效。
+
+## 开发与测试
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
 
 ## 手动安装（不用脚本）
 
@@ -148,6 +161,7 @@ TK-GMVMAX-DSH/
 │   ├── package.json
 │   └── index.js       # dashboard_query 工具 + 服务管理 + 路由 + 系统提示
 └── TK-GMVMAX/         # 看板服务（Python）
+    ├── 启动面板.bat    # 本地双击即用入口
     ├── dashboard_server.py
     ├── data_loader.py
     ├── inventory_loader.py
