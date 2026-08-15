@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# 测试临时目录
+tests/.tmp/
+
+# 运行时自动生成的说明文件
+TK-GMVMAX/*/说明.txt
+
 # 数据文件（各机器自己的数据，不入库）
 TK-GMVMAX/daily_data/*.xlsx
 TK-GMVMAX/KCXQ/*.xlsx
