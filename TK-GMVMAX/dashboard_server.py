@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import secrets
 import sys
 import threading
 import webbrowser
@@ -116,6 +117,21 @@ def _build_meta_payload() -> dict:
     }
 
 
+def _filter_product(df, product: str):
+    """product 参数统一语义（top/trend/lifecycle 共用）：
+
+    按“产品名称 / 商品 ID”做包含匹配，大小写不敏感、按字面量匹配（product 中的
+    正则特殊字符不会产生正则语义）。库存数据由插件侧按“产品代码 / SKU / 商品名”匹配。
+    """
+    product = (product or "").strip().lower()
+    if not product:
+        return df
+    name = df["产品名称"].astype(str).str.lower()
+    pid = df["商品 ID"].astype(str).str.lower()
+    mask = name.str.contains(product, na=False, regex=False) | pid.str.contains(product, na=False, regex=False)
+    return df[mask]
+
+
 def _build_trend_payload(params: dict) -> dict:
     """按天趋势聚合（P1-4）。
 
@@ -128,9 +144,7 @@ def _build_trend_payload(params: dict) -> dict:
         return {"error": "没有读取到 daily_data 中的 Excel 文件。"}
     import pandas as pd
     df = data.copy()
-    product = params.get("product", "")
-    if product:
-        df = df[df["产品名称"].astype(str).str.contains(product, na=False)]
+    df = _filter_product(df, params.get("product", ""))
     date_from = params.get("date_from", "")
     date_to = params.get("date_to", "")
     if date_from:
@@ -201,9 +215,13 @@ def _build_lifecycle_payload(params: dict) -> dict:
         return {"error": "没有读取到 daily_data 中的 Excel 文件。"}
     import pandas as pd
     df = data.copy()
-    product = params.get("product", "")
-    if product:
-        df = df[df["产品名称"].astype(str).str.contains(product, na=False)]
+    df = _filter_product(df, params.get("product", ""))
+    date_from = params.get("date_from", "")
+    date_to = params.get("date_to", "")
+    if date_from:
+        df = df[df["统计日期"] >= pd.Timestamp(date_from)]
+    if date_to:
+        df = df[df["统计日期"] <= pd.Timestamp(date_to)]
     if df.empty:
         return {"error": "所选范围内没有数据。"}
     lifecycle = material_lifecycle(df)
@@ -265,9 +283,7 @@ def _build_top_payload(params: dict) -> dict:
         return {"meta": {"error": "没有读取到 daily_data 中的 Excel 文件。"}, "rows": []}
     import pandas as pd
     df = data.copy()
-    product = params.get("product", "")
-    if product:
-        df = df[df["产品名称"].astype(str).str.contains(product, na=False)]
+    df = _filter_product(df, params.get("product", ""))
     date_from = params.get("date_from", "")
     date_to = params.get("date_to", "")
     if date_from:
@@ -338,6 +354,24 @@ def _cached_data_body(gzipped: bool = False) -> bytes:
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "TK-GMVMAX-FBT/1.0"
 
+    # --token 访问令牌：None 表示不启用鉴权（默认仅本机 127.0.0.1 的模式）。
+    # main() 启动前写入该类属性；局域网模式未显式指定令牌时自动生成。
+    auth_token: str | None = None
+
+    def _authorized(self) -> bool:
+        """/api/* 鉴权：令牌可通过 query 的 token 参数、X-TK-Token 头或 Bearer 头提供。"""
+        token = type(self).auth_token
+        if not token:
+            return True
+        query = parse_qs(urlparse(self.path).query)
+        if token in query.get("token", []):
+            return True
+        if self.headers.get("X-TK-Token") == token:
+            return True
+        if self.headers.get("Authorization") == f"Bearer {token}":
+            return True
+        return False
+
     def _send(self, content: bytes, content_type: str, status: int = 200, precompressed: bool = False,
               extra_headers: dict | None = None) -> None:
         """响应统一出口：小文件按需现场 gzip，precompressed 表示 content 已是 gzip。
@@ -363,7 +397,31 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_GET(self):  # noqa: N802
+        """请求统一入口：任何未捕获异常都转成 JSON 500，避免浏览器端连接 reset。"""
+        try:
+            self._route_get()
+        except (BrokenPipeError, ConnectionResetError):
+            # 客户端提前断开，无需也无法响应。
+            return
+        except Exception as exc:  # noqa: BLE001 - 本地面板需要把错误内容回给浏览器
+            try:
+                payload = json.dumps(
+                    {"error": f"服务器内部错误: {exc}"}, ensure_ascii=False
+                ).encode("utf-8")
+                self._send(payload, "application/json; charset=utf-8", 500)
+            except Exception:
+                # 响应通道已损坏时只能放弃。
+                pass
+
+    def _route_get(self) -> None:
         path = urlparse(self.path).path
+        if path.startswith("/api/") and not self._authorized():
+            payload = json.dumps(
+                {"error": "未授权：请在 URL 携带 token 参数，或设置 X-TK-Token / Authorization 请求头。"},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self._send(payload, "application/json; charset=utf-8", 401)
+            return
         if path.startswith("/static/"):
             name = path[len("/static/"):]
             if name in STATIC_ALLOWED:
@@ -389,6 +447,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/signature":
             # P2-9：轻量签名端点（几字节），供插件对比源文件是否变化以失效缓存。
             self._send(json.dumps({"signature": source_signature()}).encode("utf-8"), "application/json; charset=utf-8")
+            return
+        if path == "/api/inventory-signature":
+            # 库存文件签名（几字节）：插件查询库存前对比，KCXQ 更新后立即失效插件缓存。
+            self._send(json.dumps({"signature": inventory_signature()}).encode("utf-8"), "application/json; charset=utf-8")
             return
         if path == "/api/meta":
             self._send(json.dumps(_build_meta_payload(), ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
@@ -476,22 +538,36 @@ def main() -> None:
         help="监听地址：默认 127.0.0.1 仅本机访问；填 0.0.0.0 可让手机/局域网内其他设备访问",
     )
     parser.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="访问令牌：设置后 /api/* 必须携带该令牌；--host 0.0.0.0 时未提供则自动生成。",
+    )
     args = parser.parse_args()
+    token = args.token
+    if not token and args.host in ("0.0.0.0", "::"):
+        # 局域网监听默认启用鉴权，避免经营数据被局域网内任何人直接读取。
+        token = secrets.token_urlsafe(12)
+    DashboardHandler.auth_token = token
     _ensure_data_dirs()
     server = _bind_server(args.port, args.host)
     if server is None:
         print("端口被占用无法启动，请关闭其他面板后重试。")
         return
     port = server.server_address[1]
-    open_url = f"http://127.0.0.1:{port}"
+    token_part = f"?token={token}" if token else ""
+    open_url = f"http://127.0.0.1:{port}{token_part}"
     if args.host in ("0.0.0.0", "::"):
-        print(f"TK-GMVMAX-FBT面板已启动：http://127.0.0.1:{port}")
+        print(f"TK-GMVMAX-FBT面板已启动：http://127.0.0.1:{port}{token_part}")
         for url in _lan_urls(port):
-            print(f"局域网访问地址（手机或其他设备）：{url}")
+            print(f"局域网访问地址（手机或其他设备）：{url}{token_part}")
+        print(f"访问令牌（token）：{token}")
         print("若其他设备无法访问，请检查 Windows 防火墙是否放行 Python。")
     else:
-        open_url = f"http://{args.host}:{port}"
+        open_url = f"http://{args.host}:{port}{token_part}"
         print(f"TK-GMVMAX-FBT面板已启动：{open_url}")
+        if token:
+            print(f"访问令牌（token）：{token}")
     print("每次更新数据后，刷新浏览器即可读取最新数据。")
     print("关闭本窗口即停止面板。")
     if not args.no_browser:
