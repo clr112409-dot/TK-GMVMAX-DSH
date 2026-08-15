@@ -1,6 +1,6 @@
 {
   "name": "tkdash-host",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "TK-GMVMAX 看板宿主常驻插件：自动启动/管理本地看板服务，注册 dashboard_query 工具与端口路由",
   "type": "module",
   "main": "./index.js",
