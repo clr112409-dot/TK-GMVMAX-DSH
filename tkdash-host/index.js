@@ -11,14 +11,16 @@ function env(name) {
 const PYTHON = env('DSH_TKDASH_PYTHON') || 'C:/Users/Administrator/AppData/Local/Programs/Python/Python314/python.exe'
 const ROOT = env('DSH_TKDASH_ROOT') || 'C:/Users/Administrator/Documents/Codex/TK-GMVMAX'
 const BASE_PORT = 8501
-const HELPER_VERSION = 'VERSION = 16'
+const HELPER_VERSION = 'VERSION = 17'
 const HELPER_CODE = [
   '# -*- coding: utf-8 -*-',
   'import json, os, sys, time, urllib.request',
-  'VERSION = 16',
+  'VERSION = 17',
   'SERVER_TAG = "TK-GMVMAX-FBT"',
   'BASE = 8501',
-  'RANGE = 12',
+  '# 与 dashboard_server.py 的 _bind_server 扫描范围（50 个端口）保持一致：',
+  '# 不一致时服务可能绑定到 8513+，而插件找不到，导致反复重启孤儿进程。',
+  'RANGE = 50',
   'def is_panel(port):',
   '    try:',
   '        req = urllib.request.Request("http://127.0.0.1:%d/" % port, headers={"User-Agent": "dsh-plugin"})',
@@ -78,6 +80,7 @@ export default {
     const DATA_FILE = WORK + '/data.json'
     const META_FILE = WORK + '/meta.json'
     const INV_FILE = WORK + '/inv.json'
+    const INV_SIG_FILE = WORK + '/inv-sig.json'
     const TOP_FILE = WORK + '/top.json'
     const TREND_FILE = WORK + '/trend.json'
     const LIFE_FILE = WORK + '/lifecycle.json'
@@ -87,6 +90,7 @@ export default {
     let helperReady = false
     let startPromise = null
     let lastSig = ''
+    let lastInvSig = ''
     const inflight = new Map()
 
     function q(v) {
@@ -138,7 +142,7 @@ export default {
       return ctx.fs.readText(await ctx.fs.resolve(path))
     }
     async function findPort() {
-      await runHelper(['find-port', PORT_FILE], 30000)
+      await runHelper(['find-port', PORT_FILE], 120000)
       const text = (await readTextFile(PORT_FILE)).trim()
       const port = parseInt(text, 10)
       return Number.isFinite(port) && port > 0 ? port : 0
@@ -174,7 +178,7 @@ export default {
             return existing
           }
           const proc = await spawnServer()
-          for (let i = 0; i < 40; i++) {
+          for (let i = 0; i < 60; i++) {
             const port = await findPort()
             if (port) {
               knownPort = port
@@ -187,7 +191,7 @@ export default {
             }
             await ctx.timer.timeout(2000)
           }
-          throw new Error('看板服务 80 秒内未就绪')
+          throw new Error('看板服务 120 秒内未就绪')
         } finally {
           startPromise = null
         }
@@ -207,10 +211,30 @@ export default {
       }
       return false
     }
+    async function refreshInventoryIfStale(port) {
+      // 库存查询专用：KCXQ 文件变化后立即失效插件缓存（独立于 daily_data 签名）。
+      try {
+        await fetchFile('http://127.0.0.1:' + port + '/api/inventory-signature', INV_SIG_FILE, 10)
+        const sig = JSON.parse(await readTextFile(INV_SIG_FILE)).signature
+        if (typeof sig === 'string' && sig && sig !== lastInvSig) {
+          lastInvSig = sig
+          return true
+        }
+      } catch (error) {
+        console.log('tkdash-host: inventory signature check failed: ' + (error && error.message))
+      }
+      return false
+    }
     async function fetchJson(url, file) {
       const stale = await refreshIfStale(knownPort)
       await fetchFile(url, file, stale ? 0 : 300)
       const text = await readTextFile(file)
+      return JSON.parse(text)
+    }
+    async function fetchInventoryJson(port) {
+      const stale = await refreshInventoryIfStale(port)
+      await fetchFile('http://127.0.0.1:' + port + '/api/inventory', INV_FILE, stale ? 0 : 300)
+      const text = await readTextFile(INV_FILE)
       return JSON.parse(text)
     }
     function num(v) {
@@ -272,14 +296,14 @@ export default {
     // ---------- 工具: dashboard_query（全局注册，跨会话可用） ----------
     ctx.tools.register(defineTool({
       name: 'dashboard_query',
-      description: '查询用户的 TK-GMVMAX 看板（TikTok 广告素材分析 + FBT 库存监管，数据来自 daily_data 广告日报与 KCXQ 库存表）。mode: meta 返回数据概况；rows 返回广告明细行（keyword/日期过滤）；top 按视频 ID 聚合排序 Top N（product/metric/日期）；trend 返回按天趋势（days=N 近 N 天 vs 前 N 天环比）；lifecycle 按素材生命周期阶段筛选（stage: 新素材/新起量/稳定/衰退中/已停投/零消耗/待观察）；inventory 返回 FBT 库存概览（支持 product/status 过滤）；alerts 返回缺货/即将缺货 SKU（支持 product 过滤）与数据检查提示。每次查询自动对比源文件签名，Excel 更新后自动失效缓存拉取最新数据。服务未启动时自动启动。返回 JSON。',
+      description: '查询用户的 TK-GMVMAX 看板（TikTok 广告素材分析 + FBT 库存监管，数据来自 daily_data 广告日报与 KCXQ 库存表）。mode: meta 返回数据概况；rows 返回广告明细行（keyword/日期过滤）；top 按视频 ID 聚合排序 Top N（product/metric/日期）；trend 返回按天趋势（days=N 近 N 天 vs 前 N 天环比，支持 product/日期）；lifecycle 按素材生命周期阶段筛选（stage: 新素材/新起量/稳定/衰退中/已停投/零消耗/待观察；支持 product/date_from/date_to，生命周期相对所选区间末日计算）；inventory 返回 FBT 库存概览（product/status 过滤）；alerts 返回缺货/即将缺货 SKU（product 过滤）与数据检查提示。product 统一按包含匹配、大小写不敏感：广告数据匹配产品名称/商品 ID，库存数据匹配产品代码/SKU/商品名。每次查询自动对比源文件签名，Excel 更新后自动失效缓存拉取最新数据。服务未启动时自动启动。返回 JSON。',
       parameters: {
         mode: { type: 'string', enum: ['meta', 'rows', 'top', 'trend', 'lifecycle', 'inventory', 'alerts'], description: '查询模式，缺省 meta。' },
         keyword: { type: 'string', description: '过滤关键词（rows 模式），匹配产品名称/视频标题/素材标识/广告计划等。' },
-        product: { type: 'string', description: '产品代码过滤（top/trend/lifecycle/inventory/alerts 模式），如 SZW011。' },
+        product: { type: 'string', description: '产品过滤（top/trend/lifecycle/inventory/alerts 模式），包含匹配、大小写不敏感：广告数据匹配产品名称/商品 ID，库存数据匹配产品代码/SKU/商品名。' },
         metric: { type: 'string', enum: ['revenue', 'orders', 'roi', 'impressions'], description: 'top 模式排序指标，缺省 revenue（总收入）。' },
-        date_from: { type: 'string', description: '起始日期 YYYY-MM-DD（top/rows/trend 模式）。' },
-        date_to: { type: 'string', description: '结束日期 YYYY-MM-DD（top/rows/trend 模式）。' },
+        date_from: { type: 'string', description: '起始日期 YYYY-MM-DD（top/rows/trend/lifecycle 模式）。' },
+        date_to: { type: 'string', description: '结束日期 YYYY-MM-DD（top/rows/trend/lifecycle 模式）。' },
         days: { type: 'number', description: '环比天数（trend 模式），如 7：返回最近 7 天 vs 前 7 天的趋势与变化百分比。' },
         stage: { type: 'string', enum: ['新素材', '新起量', '稳定', '衰退中', '已停投', '零消耗', '待观察'], description: '素材生命周期阶段过滤（lifecycle 模式）。' },
         status: { type: 'string', enum: ['健康', '缺货', '即将缺货'], description: '库存状态过滤（inventory 模式）。' },
@@ -352,14 +376,16 @@ export default {
             rows: filtered.slice(0, limit).map(pickRow),
           }, opt(kw, { keyword: kw }), opt(dateFrom, { date_from: dateFrom }), opt(dateTo, { date_to: dateTo }))
         }
-        const inv = await fetchJson('http://127.0.0.1:' + port + '/api/inventory', INV_FILE)
+        const inv = await fetchInventoryJson(port)
         const meta = inv.meta || {}
         const allSkus = Array.isArray(inv.skus) ? inv.skus : []
         const filteredSkus = allSkus.filter((s) => {
           if (product) {
-            const pc = String(s.product_code || '')
-            const sc = String(s.sku || '')
-            if (pc.indexOf(product) < 0 && sc.indexOf(product) < 0) return false
+            const q = product.toLowerCase()
+            const pc = String(s.product_code || '').toLowerCase()
+            const sc = String(s.sku || '').toLowerCase()
+            const nm = String(s.name || '').toLowerCase()
+            if (pc.indexOf(q) < 0 && sc.indexOf(q) < 0 && nm.indexOf(q) < 0) return false
           }
           if (statusArg && (s.status || '') !== statusArg) return false
           return true
@@ -375,6 +401,7 @@ export default {
             mode, port,
             meta: { file: meta.file, updated: meta.updated, rows: meta.rows, total_skus: filteredSkus.length },
             status_summary: summary,
+            warnings: Array.isArray(inv.warnings) ? inv.warnings : [],
             skus: sorted.slice(0, limit).map(briefSku),
           }, opt(product, { product }), opt(statusArg, { status: statusArg }))
         }
@@ -393,6 +420,7 @@ export default {
           mode, port,
           inventory_meta: { file: meta.file, updated: meta.updated, rows: meta.rows },
           status_summary: summary,
+          warnings: Array.isArray(inv.warnings) ? inv.warnings : [],
           out_of_stock: outOfStock.slice(0, limit).map(briefSku),
           low_stock: lowStock.slice(0, limit).map(briefSku),
           other_alerts: other.slice(0, limit).map(briefSku),
@@ -419,7 +447,7 @@ export default {
     ctx.systemPrompt.section({
       name: 'tkdash',
       order: 206,
-      text: '【TK 看板】用户有一个本地 TK-GMVMAX 看板（TikTok 广告素材分析 + FBT 库存监管）。需要分析广告/素材/库存数据时，调用 dashboard_query 工具（mode: meta/rows/top/trend/lifecycle/inventory/alerts；top/rows/trend 支持 date_from/date_to；trend 的 days 返回近 N 天环比；lifecycle 的 stage 可按素材生命周期阶段筛选；inventory 支持 product/status 过滤）。每次查询自动检测源文件变化并刷新数据。分析运营问题、给建议时优先基于看板真实数据。看板页面在 http://127.0.0.1:8501（服务由宿主自动启动）。',
+      text: '【TK 看板】用户有一个本地 TK-GMVMAX 看板（TikTok 广告素材分析 + FBT 库存监管）。需要分析广告/素材/库存数据时，调用 dashboard_query 工具（mode: meta/rows/top/trend/lifecycle/inventory/alerts；top/rows/trend/lifecycle 支持 date_from/date_to；trend 的 days 返回近 N 天环比；lifecycle 的 stage 可按素材生命周期阶段筛选；product 按包含匹配：广告数据匹配产品名称/商品 ID，库存数据匹配产品代码/SKU/商品名；inventory 支持 product/status 过滤）。每次查询自动检测源文件变化并刷新数据。分析运营问题、给建议时优先基于看板真实数据。看板页面在 http://127.0.0.1:8501（服务由宿主自动启动）。',
     })
 
     // ---------- 宿主就绪后自动启动看板服务（常驻，跨会话） ----------
