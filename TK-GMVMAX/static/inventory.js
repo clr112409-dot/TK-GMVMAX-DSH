@@ -1,14 +1,15 @@
 // ============ Data ============
 let DATA = null;
 
-var EMBEDDED_DATA = null;
+// ============ HTML escaping ============
+// Excel 单元格内容视为不可信输入：所有拼进 innerHTML 的值必须先经 esc()，防止 XSS。
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
 
 function loadData() {
-  if (typeof EMBEDDED_DATA !== 'undefined') {
-    DATA = EMBEDDED_DATA;
-    render();
-    document.getElementById("dataTime").textContent = "本地数据 - " + new Date().toLocaleString("zh-CN");
-  }
   // Try to fetch latest data
   fetchData();
   // Auto-refresh every 60 seconds
@@ -16,24 +17,29 @@ function loadData() {
 }
 
 var lastInventoryEtag = "";
+var INV_TOKEN = "";
+try { INV_TOKEN = new URLSearchParams(window.location.search).get("token") || ""; } catch(e) {}
 function fetchData() {
-  var url = "/api/inventory?ts=" + Date.now();
+  var url = "/api/inventory?ts=" + Date.now() + (INV_TOKEN ? "&token=" + encodeURIComponent(INV_TOKEN) : "");
   var x = new XMLHttpRequest();
   x.open("GET", url, true);
   if (lastInventoryEtag) x.setRequestHeader("If-None-Match", lastInventoryEtag);
   x.onload = function() {
     if (x.status === 304) return; // 库存文件未变化
-    if (x.status === 200) {
-      lastInventoryEtag = x.getResponseHeader("ETag") || "";
-      try {
-        var newData = JSON.parse(x.responseText);
-        if (newData && newData.totals) {
-          DATA = newData;
-          render();
-          document.getElementById("dataTime").textContent = "已更新 - " + new Date().toLocaleString("zh-CN") + (newData.meta && newData.meta.file ? " · " + newData.meta.file : "");
-        }
-      } catch(e) {}
+    if (x.status !== 200) {
+      var t = document.getElementById("dataTime");
+      if (t) t.textContent = "库存数据读取失败（HTTP " + x.status + "），请查看面板日志。";
+      return;
     }
+    lastInventoryEtag = x.getResponseHeader("ETag") || "";
+    try {
+      var newData = JSON.parse(x.responseText);
+      if (newData && newData.totals) {
+        DATA = newData;
+        render();
+        document.getElementById("dataTime").textContent = "已更新 - " + new Date().toLocaleString("zh-CN") + (newData.meta && newData.meta.file ? " · " + newData.meta.file : "");
+      }
+    } catch(e) {}
   };
   x.onerror = function() {
     var t = document.getElementById("dataTime");
@@ -112,7 +118,7 @@ function svgDonut(cx, cy, r, data, colors) {
     var dStr = 'M ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' + x2 + ' ' + y2 +
                ' L ' + xi1 + ' ' + yi1 + ' A ' + innerR + ' ' + innerR + ' 0 ' + largeArc + ' 0 ' + xi2 + ' ' + yi2 + ' Z';
     var c = colors[i % colors.length];
-    paths.push('<path d="' + dStr + '" fill="' + c + '" opacity="0.9"><title>' + d.label + ': ' + d.v + '</title></path>');
+    paths.push('<path d="' + dStr + '" fill="' + c + '" opacity="0.9"><title>' + esc(d.label) + ': ' + d.v + '</title></path>');
     startAngle = endAngle;
   });
   return paths.join('\n');
@@ -120,7 +126,7 @@ function svgDonut(cx, cy, r, data, colors) {
 
 function svgDonutLegend(data, colors) {
   return data.map(function(d, i) {
-    return '<div class="legend-item"><span class="legend-dot" style="background:' + colors[i % colors.length] + '"></span>' + d.label + ': ' + d.v + '</div>';
+    return '<div class="legend-item"><span class="legend-dot" style="background:' + colors[i % colors.length] + '"></span>' + esc(d.label) + ': ' + d.v + '</div>';
   }).join('');
 }
 
@@ -168,7 +174,7 @@ function svgBarChart(data, width, height, barColor, labelWidth) {
     var barW = (d.v / maxV) * chartW;
     var y = offset + 6;
     var labelX = labelWidth;
-    bars.push('<text x="0" y="' + (y + 14) + '" font-size="11" fill="#64748b" text-anchor="end">' + d.label + '</text>');
+    bars.push('<text x="0" y="' + (y + 14) + '" font-size="11" fill="#64748b" text-anchor="end">' + esc(d.label) + '</text>');
     bars.push('<rect x="' + labelWidth + '" y="' + y + '" width="' + Math.max(barW, 2) + '" height="20" rx="3" fill="' + barColor + '" opacity="0.85"><title>' + d.v + '</title></rect>');
     if (barW > 30) {
       bars.push('<text x="' + (labelWidth + barW - 6) + '" y="' + (y + 15) + '" font-size="10" fill="white" text-anchor="end" font-weight="600">' + d.v + '</text>');
@@ -311,7 +317,7 @@ function renderAgingChart(d) {
       tooltip.style.display = "block";
       var html = "<div style=\"font-weight:700;margin-bottom:3px\">" + found.bucket + " \u5929: " + Math.round(found.total) + " \u5355\u4f4d</div>";
       found.products.forEach(function(p) {
-        html += "<div>" + p.pc + ": " + Math.round(p.val) + "</div>";
+        html += "<div>" + esc(p.pc) + ": " + Math.round(p.val) + "</div>";
       });
       tooltip.innerHTML = html;
       var tx = e.clientX - rect.left + 16;
@@ -441,21 +447,23 @@ function renderGroupedTable() {
     
     var cs = window._childSort[pc] || { col:"sku", dir:1 };
     
+    var pcEsc = esc(pc);
+    var goodsHead = esc(String((g.skus[0] && g.skus[0].goods_id) || '').substring(0, 6));
     var tr = document.createElement("tr");
     tr.className = "group-row";
     tr.style.cssText = "background:#f0f4ff;border-top:2px solid #e2e8f0";
     tr.innerHTML = [
-      "<td style=\"text-align:center;font-size:14px;cursor:pointer\" onclick=\"toggleGroup('"+pc+"')\">"+(isExpanded?"\u25bc":"\u25b6")+"</td>",
-      "<td style=\"font-weight:700;font-size:14px;cursor:pointer\" onclick=\"toggleGroup('"+pc+"')\">"+pc+"</td>",
-      "<td style=\"cursor:pointer;user-select:none\" onclick=\"childSort('"+pc+"','sku')\" title=\"\u70b9\u51fb\u6309SKU\u6392\u5e8f\">"+g.skus.length+(cs.col==="sku"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"\u25b2":"\u25bc")+"</span>":"")+"</td>",
-      "<td style=\"color:#64748b;font-size:11px\">"+g.skus[0].goods_id.substring(0,6)+(g.skus.length>1?"\u2026":"")+"</td>",
-      "<td style=\"font-weight:700;color:#10b981;cursor:pointer;user-select:none\" onclick=\"childSort('"+pc+"','available')\" title=\"\u70b9\u51fb\u6309\u53ef\u7528\u5e93\u5b58\u6392\u5e8f\">"+Math.round(g.total_avail)+(cs.col==="available"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"\u25b2":"\u25bc")+"</span>":"")+"</td>",
-      "<td style=\"cursor:pointer;user-select:none\" onclick=\"childSort('"+pc+"','transit')\" title=\"\u70b9\u51fb\u6309\u5728\u9014\u6392\u5e8f\">"+Math.round(g.total_transit)+(cs.col==="transit"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"\u25b2":"\u25bc")+"</span>":"")+"</td>",
-      "<td style=\"font-weight:700;cursor:pointer;user-select:none\" onclick=\"childSort('"+pc+"','sales_30d')\" title=\"\u70b9\u51fb\u6309\u9500\u91cf\u6392\u5e8f\">"+Math.round(g.total_sales)+(cs.col==="sales_30d"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"\u25b2":"\u25bc")+"</span>":"")+"</td>",
-      "<td onclick=\"toggleGroup('"+pc+"')\" style=\"cursor:pointer\">"+ss+"</td>",
-      "<td onclick=\"toggleGroup('"+pc+"')\" style=\"cursor:pointer\">-</td>",
-      "<td onclick=\"toggleGroup('"+pc+"')\" style=\"cursor:pointer\">—</td>",
-      "<td onclick=\"toggleGroup('"+pc+"')\" style=\"cursor:pointer\">"+g.skus.filter(function(r){return r.demand_30d>0;}).length+" \u6709\u6570\u636e</td>",
+      "<td style=\"text-align:center;font-size:14px;cursor:pointer\" data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\">"+(isExpanded?"▼":"▶")+"</td>",
+      "<td style=\"font-weight:700;font-size:14px;cursor:pointer\" data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\">"+pcEsc+"</td>",
+      "<td style=\"cursor:pointer;user-select:none\" data-pc=\""+pcEsc+"\" onclick=\"childSort(this.dataset.pc,'sku')\" title=\"点击按SKU排序\">"+g.skus.length+(cs.col==="sku"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"▲":"▼")+"</span>":"")+"</td>",
+      "<td style=\"color:#64748b;font-size:11px\">"+goodsHead+(g.skus.length>1?"…":"")+"</td>",
+      "<td style=\"font-weight:700;color:#10b981;cursor:pointer;user-select:none\" data-pc=\""+pcEsc+"\" onclick=\"childSort(this.dataset.pc,'available')\" title=\"点击按可用库存排序\">"+Math.round(g.total_avail)+(cs.col==="available"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"▲":"▼")+"</span>":"")+"</td>",
+      "<td style=\"cursor:pointer;user-select:none\" data-pc=\""+pcEsc+"\" onclick=\"childSort(this.dataset.pc,'transit')\" title=\"点击按在途排序\">"+Math.round(g.total_transit)+(cs.col==="transit"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"▲":"▼")+"</span>":"")+"</td>",
+      "<td style=\"font-weight:700;cursor:pointer;user-select:none\" data-pc=\""+pcEsc+"\" onclick=\"childSort(this.dataset.pc,'sales_30d')\" title=\"点击按销量排序\">"+Math.round(g.total_sales)+(cs.col==="sales_30d"?" <span style=\"font-size:10px;color:#6366f1\">"+(cs.dir===1?"▲":"▼")+"</span>":"")+"</td>",
+      "<td data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\" style=\"cursor:pointer\">"+ss+"</td>",
+      "<td data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\" style=\"cursor:pointer\">-</td>",
+      "<td data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\" style=\"cursor:pointer\">—</td>",
+      "<td data-pc=\""+pcEsc+"\" onclick=\"toggleGroup(this.dataset.pc)\" style=\"cursor:pointer\">"+g.skus.filter(function(r){return r.demand_30d>0;}).length+" 有数据</td>",
     ].join("");
     tbody.appendChild(tr);
     
@@ -491,7 +499,11 @@ function renderGroupedTable() {
       });
       
       skusData.forEach(function(r) {
-        var sc = "status-"+(r.status||"");
+        var statusKey = String(r.status || "unknown").replace(/[^\w-]/g, "_");
+        var sc = "status-" + statusKey;
+        var skuEsc = esc(r.sku);
+        var goodsEsc = esc(r.goods_id);
+        var statusEsc = esc(r.status || "-");
         var dc = "";
         if (r.dos_30d === 0) dc = "color:#ef4444";
         else if (r.dos_30d < 30) dc = "color:#f59e0b";
@@ -500,14 +512,14 @@ function renderGroupedTable() {
         ct.style.cssText = "background:#fafcff";
         ct.innerHTML = [
           "<td style=\"background:#e8f0fe;width:28px\"></td>",
-          "<td><span style=\"font-weight:500;font-family:'Consolas','Courier New',monospace;font-size:12px\">"+r.sku+"</span></td>",
+          "<td><span style=\"font-weight:500;font-family:'Consolas','Courier New',monospace;font-size:12px\">"+skuEsc+"</span></td>",
           "<td></td>",
-          "<td style=\"color:#64748b;font-size:11px\">"+r.goods_id+"</td>",
+          "<td style=\"color:#64748b;font-size:11px\">"+goodsEsc+"</td>",
           "<td style=\"font-weight:600\">"+Math.round(r.available)+"</td>",
           "<td>"+Math.round(r.transit)+"</td>",
           "<td>"+Math.round(r.sales_30d)+"</td>",
-          "<td><span class=\"status-badge "+sc+"\">"+(r.status||"-")+"</span></td>",
-          "<td style=\""+dc+";font-weight:600\">"+(r.dos_30d>=999?"\u221e":r.dos_30d.toFixed(1))+"</td>",
+          "<td><span class=\"status-badge "+sc+"\">"+statusEsc+"</span></td>",
+          "<td style=\""+dc+";font-weight:600\">"+(r.dos_30d>=999?"∞":r.dos_30d.toFixed(1))+"</td>",
           "<td style=\"font-size:11px;font-family:monospace\">"+function(r){var a=[];if(r.aging_0_30>0)a.push("0-30:"+Math.round(r.aging_0_30));if(r.aging_31_60>0)a.push("31-60:"+Math.round(r.aging_31_60));if(r.aging_61_90>0)a.push("61-90:"+Math.round(r.aging_61_90));if(r.aging_over_90>0)a.push(">90:"+Math.round(r.aging_over_90));return a.length?a.join(" "):"-";}(r)+"</td>",
       "<td>"+Math.round(r.demand_30d)+"</td>",
         ].join("");
