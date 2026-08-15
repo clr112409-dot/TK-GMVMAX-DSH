@@ -7,7 +7,7 @@ TikTok 广告素材分析 + FBT 库存监管看板。本仓库提供 **两种使
 
 ## 方式一：本地运行版（不需要 dsh）
 
-下载 **`TK-GMVMAX-FBT面板-分享包.zip`**，解压后：
+下载分享包 **[TK-GMVMAX-FBT面板-分享包.zip](https://raw.githubusercontent.com/clr112409-dot/TK-GMVMAX-DSH/main/TK-GMVMAX-FBT%E9%9D%A2%E6%9D%BF-%E5%88%86%E4%BA%AB%E5%8C%85.zip)**（无需 dsh，解压后双击启动），解压后：
 
 1. 安装 Python 3.10+（https://www.python.org/downloads/ ，勾选 **Add Python to PATH**）
 2. 双击 **`启动面板.bat`**：自动安装依赖（首次约 1-2 分钟），自动打开 http://127.0.0.1:8501
