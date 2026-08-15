@@ -197,23 +197,31 @@ Write-Host '[7/8] 数据目录已创建: daily_data / KCXQ / "SKU Matching Table
 # ---------- 8. 冒烟测试看板服务 ----------
 Write-Host '[8/8] 冒烟测试看板服务（约 30 秒）...' -ForegroundColor Green
 $smokeOk = $false
-$wasRunning = $false
+$proc = $null
 try {
-  try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8501/api/meta' -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { $wasRunning = $true } } catch {}
-  $proc = Start-Process -FilePath $python -ArgumentList @((Join-Path $GMVMAX_DIR 'dashboard_server.py'), '--port', '8501', '--no-browser') -PassThru -WindowStyle Hidden
-  for ($i = 0; $i -lt 30; $i++) {
-    Start-Sleep -Seconds 1
-    try {
-      $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8501/api/meta' -UseBasicParsing -TimeoutSec 3
-      if ($resp.StatusCode -eq 200) { $smokeOk = $true; break }
-    } catch {}
-    if ($proc.HasExited) { break }
+  # 8501 已有面板服务在跑就直接跳过，不再另起进程（避免端口漂移到 8502 留下僵尸服务）。
+  try {
+    $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8501/api/meta' -UseBasicParsing -TimeoutSec 3
+    if ($r.StatusCode -eq 200) { $smokeOk = $true }
+  } catch {}
+  if ($smokeOk) {
+    Write-Host '[8/8] 8501 已有面板服务在运行，跳过冒烟启动。' -ForegroundColor Green
+  } else {
+    $proc = Start-Process -FilePath $python -ArgumentList @((Join-Path $GMVMAX_DIR 'dashboard_server.py'), '--port', '8501', '--no-browser') -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 30; $i++) {
+      Start-Sleep -Seconds 1
+      try {
+        $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:8501/api/meta' -UseBasicParsing -TimeoutSec 3
+        if ($resp.StatusCode -eq 200) { $smokeOk = $true; break }
+      } catch {}
+      if ($proc -and $proc.HasExited) { break }
+    }
+    # 冒烟测试启动的进程不常驻：无论成功与否都清理，避免 8502+ 残留。
+    if ($proc -and -not $proc.HasExited) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
   }
-  if (-not $smokeOk) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
 } catch {}
 if ($smokeOk) {
-  Write-Host '[8/8] 看板服务启动正常，数据解析 OK' -ForegroundColor Green
-  if (-not $wasRunning) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
+  Write-Host '[8/8] 看板服务启动正常（放入数据文件后自动解析）' -ForegroundColor Green
 } else {
   Write-Host '[8/8] 警告：冒烟测试未通过（服务可能已在运行或启动较慢）。重启 dsh 后宿主会自动再试。' -ForegroundColor Yellow
 }
